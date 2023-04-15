@@ -50,14 +50,14 @@ pub fn create(b: *std.build.Builder, opt: struct {
     var result = b.allocator.create(GitRepoStep) catch @panic("memory");
     const name = std.fs.path.basename(opt.url);
     result.* = GitRepoStep{
-        .step = std.build.Step.init(.custom, "clone a git repository", b.allocator, make),
+        .step = std.build.Step.init(.{ .id = .custom, .name = "clone a git repository", .owner = b, .makeFn = make }),
         .builder = b,
         .url = opt.url,
         .name = name,
         .branch = opt.branch,
         .sha = opt.sha,
         .path = if (opt.path) |p| (b.allocator.dupe(u8, p) catch @panic("memory")) else (std.fs.path.resolve(b.allocator, &[_][]const u8{
-            b.build_root,
+            b.build_root.path.?,
             "dep",
             name,
         })) catch @panic("memory"),
@@ -79,7 +79,8 @@ fn hasDependency(step: *const std.build.Step, dep_candidate: *const std.build.St
     return false;
 }
 
-fn make(step: *std.build.Step) !void {
+fn make(step: *std.build.Step, progess: *std.Progress.Node) !void {
+    _ = progess;
     const self = @fieldParentPtr(GitRepoStep, "step", step);
 
     std.fs.accessAbsolute(self.path, .{}) catch {
@@ -140,7 +141,7 @@ fn checkSha(self: GitRepoStep) !void {
                 "rev-parse",
                 "HEAD",
             },
-            .cwd = self.builder.build_root,
+            .cwd = self.builder.build_root.path.?,
             .env_map = self.builder.env_map,
         }) catch |e| break :blk .{ .failed = e };
         try std.io.getStdErr().writer().writeAll(result.stderr);
@@ -183,7 +184,7 @@ fn run(builder: *std.build.Builder, argv: []const []const u8) !void {
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
-    child.cwd = builder.build_root;
+    child.cwd = builder.build_root.path.?;
     child.env_map = builder.env_map;
 
     try child.spawn();

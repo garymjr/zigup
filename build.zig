@@ -14,14 +14,17 @@ pub fn build(b: *Builder) !void {
     else
         b.standardTargetOptions(.{});
 
-    const mode = b.standardReleaseOptions();
+    const mode = b.standardOptimizeOption(.{ .preferred_optimize_mode = std.builtin.OptimizeMode.ReleaseFast });
 
     const zigup_build_options = b.addOptions();
     const win32exelink: ?*std.build.LibExeObjStep = blk: {
         if (target.getOs().tag == .windows) {
-            const exe = b.addExecutable("win32exelink", "win32exelink.zig");
-            exe.setTarget(target);
-            exe.setBuildMode(mode);
+            const exe = b.addExecutable(.{
+                .name = "win32exelink",
+                .root_source_file = std.Build.FileSource.relative("win32exelink.zig"),
+                .target = target,
+                .optimize = mode,
+            });
             zigup_build_options.addOptionFileSource("win32exelink_filename", .{ .generated = &exe.output_path_source });
             break :blk exe;
         }
@@ -30,9 +33,9 @@ pub fn build(b: *Builder) !void {
 
     // TODO: Maybe add more executables with different ssl backends
     const exe = try addZigupExe(b, target, mode, zigup_build_options, win32exelink);
-    exe.install();
+    b.installArtifact(exe);
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
     const run_step = b.step("run", "Run the app");
@@ -45,10 +48,13 @@ pub fn build(b: *Builder) !void {
 }
 
 fn addTest(b: *Builder, exe: *std.build.LibExeObjStep, target: std.zig.CrossTarget, mode: std.builtin.Mode) void {
-    const test_exe = b.addExecutable("test", "test.zig");
-    test_exe.setTarget(target);
-    test_exe.setBuildMode(mode);
-    const run_cmd = test_exe.run();
+    const test_exe = b.addExecutable(.{
+        .name = "test",
+        .root_source_file = std.Build.FileSource.relative("test.zig"),
+        .target = target,
+        .optimize = mode,
+    });
+    const run_cmd = b.addRunArtifact(test_exe);
 
     // TODO: make this work, add exe install path as argument to test
     //run_cmd.addArg(exe.getInstallPath());
@@ -66,9 +72,12 @@ fn addZigupExe(
     zigup_build_options: *std.build.OptionsStep,
     optional_win32exelink: ?*std.build.LibExeObjStep,
 ) !*std.build.LibExeObjStep {
-    const exe = b.addExecutable("zigup", "zigup.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "zigup",
+        .root_source_file = std.Build.FileSource.relative("zigup.zig"),
+        .target = target,
+        .optimize = mode,
+    });
 
     if (optional_win32exelink) |win32exelink| {
         exe.step.dependOn(&win32exelink.step);
@@ -86,10 +95,10 @@ fn addZigupExe(
     if (targetIsWindows(target)) {
         exe.step.dependOn(&zarc_repo.step);
         const zarc_repo_path = zarc_repo.getPath(&exe.step);
-        exe.addPackage(Pkg {
-            .name = "zarc",
-            .source = .{ .path = try join(b, &[_][]const u8 { zarc_repo_path, "src", "main.zig" }) },
+        const zarc_module = b.addModule("zarc", .{
+            .source_file = .{ .path = try join(b, &[_][]const u8{ zarc_repo_path, "src", "main.zig" }) },
         });
+        exe.addModule("zarc", zarc_module);
     }
     return exe;
 }
@@ -101,14 +110,13 @@ fn targetIsWindows(target: std.zig.CrossTarget) bool {
 }
 
 fn addGithubReleaseExe(b: *Builder, github_release_step: *std.build.Step, comptime target_triple: []const u8) !void {
-
     const small_release = true;
 
     const target = try std.zig.CrossTarget.parse(.{ .arch_os_abi = target_triple });
     const mode = if (small_release) .ReleaseSafe else .Debug;
     const exe = try addZigupExe(b, target, mode);
     if (small_release) {
-       exe.strip = true;
+        exe.strip = true;
     }
     exe.setOutputDir("github-release" ++ std.fs.path.sep_str ++ target_triple);
     github_release_step.dependOn(&exe.step);
