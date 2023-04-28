@@ -45,7 +45,7 @@ fn download(allocator: Allocator, url: []const u8, writer: anytype) !void {
     };
     defer client.deinit();
 
-    var request = try client.request(uri, .{}, .{});
+    var request = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
     defer request.deinit();
     try request.do();
 
